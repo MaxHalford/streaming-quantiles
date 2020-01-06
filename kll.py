@@ -5,11 +5,11 @@ Intended for academic use only. No commercial use is allowed.
 '''
 
 import sys
-from random import random
+import random
 from math import ceil
 
 class  KLL:
-    def __init__(self, k, c = 2.0/3.0, lazy=True, alternate=True):
+    def __init__(self, k, c = 2.0/3.0, lazy=True, alternate=True, seed=None):
         if k<=0: raise ValueError("k must be a positive integer.")
         if c <= 0.5 or c > 1.0: raise ValueError("c must larger than 0.5 and at most 1.0.")
         self.k = k
@@ -18,26 +18,27 @@ class  KLL:
         self.alternate = alternate
         self.compactors = []
         self.H = 0
-        self.size = 0 
+        self.size = 0
         self.maxSize = 0
+        self.rng = random.Random(seed)
         self.grow()
-        
+
     def grow(self):
-        self.compactors.append(Compactor(self.alternate))
+        self.compactors.append(Compactor(self.rng, self.alternate))
         self.H = len(self.compactors)
         self.maxSize = sum(self.capacity(height) for height in range(self.H))
-        
+
     def capacity(self, hight):
         depth = self.H - hight - 1
         return int(ceil(self.c**depth*self.k)) + 1
-    
+
     def update(self, item):
         self.compactors[0].append(item)
         self.size += 1
         if self.size >= self.maxSize:
             self.compress()
             assert(self.size < self.maxSize)
-            
+
     def compress(self):
         for h in range(len(self.compactors)):
             if len(self.compactors[h]) >= self.capacity(h):
@@ -50,14 +51,14 @@ class  KLL:
     def merge(self, other):
         # Grow until self has at least as many compactors as other
         while self.H < other.H: self.grow()
-        # Append the items in same height compactors 
+        # Append the items in same height compactors
         for h in range(other.H): self.compactors[h].extend(other.compactors[h])
         self.size = sum(len(c) for c in self.compactors)
         # Keep compressing until the size constraint is met
         while self.size >= self.maxSize:
             self.compress()
-        assert(self.size < self.maxSize) 
-        
+        assert(self.size < self.maxSize)
+
     def rank(self, value):
         r = 0
         for (h, c) in enumerate(self.compactors):
@@ -66,19 +67,18 @@ class  KLL:
                      r += 2**h
         return r
 
-    def cdf(self):
+    def cdf(self, x):
         itemsAndWeights = []
+        totWeight = 0
         for (h, items) in enumerate(self.compactors):
-             itemsAndWeights.extend( (item, 2**h) for item in items )
-        totWeight = sum( weight for (item, weight) in itemsAndWeights)
+            totWeight += 2**h * len(items)
+            itemsAndWeights.extend( (item, 2**h) for item in items if item < x )
         itemsAndWeights.sort()
         cumWeight = 0
-        cdf = []
         for (item, weight) in itemsAndWeights:
             cumWeight += weight
-            cdf.append( (item, float(cumWeight)/float(totWeight) ) )
-        return cdf
-    
+        return float(cumWeight) / float(totWeight)
+
     def ranks(self):
         ranksList = []
         itemsAndWeights = []
@@ -92,7 +92,8 @@ class  KLL:
         return ranksList
 
 class Compactor(list):
-    def __init__(self, alternate=True):
+    def __init__(self, rng, alternate=True):
+        self.rng = rng
         self.numCompaction = 0
         self.offset = 0
         self.alternate = alternate
@@ -101,7 +102,7 @@ class Compactor(list):
         if (self.numCompaction%2==1 and self.alternate):
             self.offset = 1 - self.offset
         else:
-            self.offset = int(random() < 0.5)
+            self.offset = int(self.rng.random() < 0.5)
 
         self.sort()
 
@@ -118,25 +119,25 @@ class Compactor(list):
 
         self.numCompaction += 1
 
-                          
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('-k', type=int, default=128, 
-                        help='''controls the number of elements in the sketch which is 
+    parser.add_argument('-k', type=int, default=128,
+                        help='''controls the number of elements in the sketch which is
                         at most 3k+log2(n). n is the length of the stream.''')
     parser.add_argument('-t', type=str, choices=["string","int","float"], default='string',
                         help='defines the type of stream items, default="string".')
     args = parser.parse_args()
-    
+
     k = args.k if args.k > 0 else 128
     conversions = {'int':int,'string':str,'float':float}
-         
+
     kll = KLL(k)
     for line in sys.stdin:
         item = conversions[args.t](line.strip('\n\r'))
         kll.update(item)
-        
+
     for (item, quantile) in kll.cdf():
         print('%f\t%s'%(quantile,str(item)))
-        
+
